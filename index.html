@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>ナンプレ</title>
+<meta name="theme-color" content="#ECE7DA">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ナンプレ">
+<style>
+  :root{
+    --paper:#ECE7DA;         /* 生成りの和紙 */
+    --board:#FBF9F3;         /* 盤面の紙色 */
+    --ink:#1C2B3A;           /* 藍墨（罫線・問題の数字） */
+    --ink-soft:#5A6672;      /* 薄墨 */
+    --indigo:#245078;        /* 藍（自分で入れた数字・選択） */
+    --sel:#CBDBE7;           /* 選択マス */
+    --peer:#E7EDF0;          /* 同じ行・列・ブロック */
+    --same:#C6D9E6;          /* 同じ数字 */
+    --error:#B0453A;         /* 朱（間違い） */
+    --error-bg:#F0DAD5;
+    --success:#3F7A52;       /* 正解・完成 */
+    --line-thin:#C9C2B2;
+    --line-thick:#1C2B3A;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif;
+    min-height:100vh;
+    display:flex; flex-direction:column; align-items:center;
+    padding:18px 14px 40px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{ width:100%; max-width:460px; }
+
+  header{ text-align:center; margin-bottom:14px; }
+  .title{
+    font-family:"Yu Mincho","Hiragino Mincho ProN",serif;
+    font-size:2.5rem; font-weight:600; letter-spacing:.22em;
+    margin:0; padding-left:.22em; color:var(--ink);
+  }
+  .tagline{ margin:4px 0 0; font-size:.72rem; letter-spacing:.32em; color:var(--ink-soft); }
+
+  /* 難易度 */
+  .levels{ display:flex; gap:8px; justify-content:center; margin:14px 0 12px; }
+  .level{
+    flex:1; max-width:110px; padding:9px 0; border:1px solid var(--line-thin);
+    background:transparent; color:var(--ink-soft); border-radius:10px;
+    font-size:.9rem; font-weight:600; letter-spacing:.14em; cursor:pointer;
+    transition:all .15s ease; font-family:inherit;
+  }
+  .level.active{ background:var(--ink); color:var(--board); border-color:var(--ink); }
+
+  /* ステータス */
+  .status{
+    display:flex; justify-content:space-between; align-items:baseline;
+    margin:0 2px 10px; font-size:.82rem; color:var(--ink-soft);
+    letter-spacing:.06em;
+  }
+  .status .val{ font-variant-numeric:tabular-nums; font-size:1.15rem; color:var(--ink); font-weight:600; }
+  .status .best .val{ color:var(--indigo); }
+
+  /* 盤面と数字パッドの横並び */
+  .main{ display:flex; gap:8px; align-items:flex-start; width:100%; }
+
+  /* 盤面 */
+  .board{
+    display:grid; grid-template-columns:repeat(9,1fr);
+    flex:1 1 auto; min-width:0;
+    background:var(--board);
+    border:2.5px solid var(--line-thick);
+    border-radius:4px;
+    box-shadow:0 6px 22px rgba(28,43,58,.12);
+    overflow:hidden;
+  }
+  .cell{
+    display:flex; align-items:center; justify-content:center;
+    aspect-ratio:1/1;
+    border-right:1px solid var(--line-thin);
+    border-bottom:1px solid var(--line-thin);
+    font-size:clamp(1.2rem,6.6vw,1.75rem);
+    font-variant-numeric:tabular-nums;
+    cursor:pointer; user-select:none;
+    color:var(--indigo); font-weight:500;
+    transition:background .1s ease;
+    position:relative;
+  }
+  .cell.bt{ border-bottom:2px solid var(--line-thick); }
+  .cell.rt{ border-right:2px solid var(--line-thick); }
+  .cell:nth-child(9n){ border-right:none; }
+  .cell.given{
+    color:var(--ink); font-weight:700;
+    font-family:"Yu Mincho","Hiragino Mincho ProN",serif;
+  }
+  .cell.peer{ background:var(--peer); }
+  .cell.same{ background:var(--same); }
+  .cell.sel{ background:var(--sel); box-shadow:inset 0 0 0 2px var(--indigo); }
+  .cell.conflict{ color:var(--error); }
+  .cell.wrong{ background:var(--error-bg); color:var(--error); }
+  .cell.done{ animation:pop .4s ease; }
+  @keyframes pop{ 0%{transform:scale(1);} 40%{transform:scale(1.12);} 100%{transform:scale(1);} }
+
+  /* 操作ボタン */
+  .actions{ display:flex; gap:8px; margin:14px 0 10px; }
+  .actions button{
+    flex:1; padding:12px 0; border-radius:10px; border:1px solid var(--line-thin);
+    background:var(--board); color:var(--ink); font-size:.92rem; font-weight:600;
+    letter-spacing:.08em; cursor:pointer; font-family:inherit; transition:all .12s ease;
+  }
+  .actions button:active{ transform:translateY(1px); }
+  .actions .primary{ background:var(--ink); color:var(--board); border-color:var(--ink); }
+
+  /* 数字パッド（盤面の右・縦一列） */
+  .pad{
+    flex:0 0 clamp(52px,15vw,70px);
+    align-self:stretch;
+    display:flex; flex-direction:column; gap:6px;
+  }
+  .pad button{
+    flex:1 1 0; min-height:0; width:100%;
+    border-radius:10px; border:1px solid var(--line-thin);
+    background:var(--board); color:var(--indigo);
+    font-size:clamp(1.15rem,4.6vw,1.45rem); font-weight:600; font-variant-numeric:tabular-nums;
+    cursor:pointer; font-family:inherit; transition:all .12s ease;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .pad button:active{ background:var(--sel); transform:translateY(1px); }
+  .pad .erase{ font-size:.82rem; letter-spacing:.08em; color:var(--ink-soft); font-weight:600; }
+
+  /* メッセージ */
+  .msg{ text-align:center; min-height:1.4em; margin-top:14px; font-size:.95rem; letter-spacing:.06em; font-weight:600; }
+  .msg.err{ color:var(--error); }
+  .msg.ok{ color:var(--success); }
+
+  /* 完成バナー */
+  .banner{
+    position:fixed; inset:0; background:rgba(28,43,58,.55);
+    display:none; align-items:center; justify-content:center; padding:20px; z-index:10;
+  }
+  .banner.show{ display:flex; }
+  .banner .card{
+    background:var(--board); border-radius:16px; padding:30px 26px; text-align:center;
+    max-width:320px; width:100%; box-shadow:0 20px 60px rgba(0,0,0,.3);
+  }
+  .banner h2{
+    font-family:"Yu Mincho","Hiragino Mincho ProN",serif;
+    font-size:1.8rem; margin:0 0 6px; color:var(--success); letter-spacing:.1em;
+  }
+  .banner .time{ font-size:2.4rem; font-variant-numeric:tabular-nums; font-weight:700; margin:10px 0; color:var(--ink); }
+  .banner .newbest{ color:var(--indigo); font-size:.9rem; font-weight:600; letter-spacing:.1em; margin-bottom:8px; }
+  .banner button{
+    margin-top:16px; padding:13px 30px; border:none; border-radius:10px;
+    background:var(--ink); color:var(--board); font-size:1rem; font-weight:600;
+    letter-spacing:.1em; cursor:pointer; font-family:inherit; width:100%;
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    *{ animation:none !important; transition:none !important; }
+  }
+  /* 画面が低い端末では余白を詰めて1画面に収める */
+  @media (max-height:760px){
+    body{ padding-top:12px; padding-bottom:16px; }
+    .title{ font-size:2rem; }
+    header{ margin-bottom:8px; }
+    .levels{ margin:10px 0 8px; }
+    .status{ margin-bottom:8px; }
+    .actions{ margin:10px 0 8px; }
+    .msg{ margin-top:8px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 class="title">ナンプレ</h1>
+    <p class="tagline">N U M B E R　P L A C E</p>
+  </header>
+
+  <div class="levels" id="levels">
+    <button class="level" data-level="easy">初級</button>
+    <button class="level active" data-level="medium">中級</button>
+    <button class="level" data-level="hard">上級</button>
+  </div>
+
+  <div class="status">
+    <div class="time"><span class="val" id="timer">00:00</span></div>
+    <div class="best">自己ベスト <span class="val" id="best">--:--</span></div>
+  </div>
+
+  <div class="main">
+    <div class="board" id="board"></div>
+    <div class="pad" id="pad">
+      <button data-n="1">1</button>
+      <button data-n="2">2</button>
+      <button data-n="3">3</button>
+      <button data-n="4">4</button>
+      <button data-n="5">5</button>
+      <button data-n="6">6</button>
+      <button data-n="7">7</button>
+      <button data-n="8">8</button>
+      <button data-n="9">9</button>
+      <button data-n="0" class="erase">消す</button>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button id="newBtn" class="primary">新しい問題</button>
+    <button id="hintBtn">ヒント</button>
+    <button id="checkBtn">答え合わせ</button>
+  </div>
+
+  <div class="msg" id="msg"></div>
+</div>
+
+<div class="banner" id="banner">
+  <div class="card">
+    <h2>完成！</h2>
+    <div class="newbest" id="newbest" style="display:none">自己ベスト更新！</div>
+    <div class="time" id="finalTime">00:00</div>
+    <button id="bannerNew">つぎの問題へ</button>
+  </div>
+</div>
+
+<script>
+/* ===== ナンプレ生成ロジック ===== */
+function makeEmptyGrid(){ return Array.from({length:9},()=>Array(9).fill(0)); }
+function isSafe(g,r,c,n){
+  for(let i=0;i<9;i++){ if(g[r][i]===n||g[i][c]===n) return false; }
+  const br=Math.floor(r/3)*3, bc=Math.floor(c/3)*3;
+  for(let i=0;i<3;i++) for(let j=0;j<3;j++) if(g[br+i][bc+j]===n) return false;
+  return true;
+}
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function fillGrid(g){
+  for(let r=0;r<9;r++) for(let c=0;c<9;c++){
+    if(g[r][c]===0){
+      const nums=shuffle([1,2,3,4,5,6,7,8,9]);
+      for(const n of nums){ if(isSafe(g,r,c,n)){ g[r][c]=n; if(fillGrid(g)) return true; g[r][c]=0; } }
+      return false;
+    }
+  }
+  return true;
+}
+function countSolutions(g,limit){
+  let count=0;
+  (function solve(){
+    if(count>=limit) return;
+    let r=-1,c=-1;
+    outer: for(let i=0;i<9;i++) for(let j=0;j<9;j++){ if(g[i][j]===0){ r=i;c=j; break outer; } }
+    if(r===-1){ count++; return; }
+    for(let n=1;n<=9 && count<limit;n++){ if(isSafe(g,r,c,n)){ g[r][c]=n; solve(); g[r][c]=0; } }
+  })();
+  return count;
+}
+function generatePuzzle(emptyTarget){
+  const solution=makeEmptyGrid(); fillGrid(solution);
+  const puzzle=solution.map(r=>r.slice());
+  const positions=shuffle([...Array(81).keys()]);
+  let removed=0;
+  for(const pos of positions){
+    if(removed>=emptyTarget) break;
+    const r=Math.floor(pos/9), c=pos%9;
+    const backup=puzzle[r][c];
+    puzzle[r][c]=0;
+    const copy=puzzle.map(x=>x.slice());
+    if(countSolutions(copy,2)!==1){ puzzle[r][c]=backup; } else { removed++; }
+  }
+  return {puzzle,solution};
+}
+
+/* ===== 状態 ===== */
+const EMPTY_TARGET={ easy:41, medium:47, hard:53 };
+const bestTimes={ easy:null, medium:null, hard:null }; /* セッション中のみ保持 */
+let level='medium';
+let puzzle, solution, given, selected=null, solved=false;
+let timerId=null, seconds=0;
+
+const boardEl=document.getElementById('board');
+const timerEl=document.getElementById('timer');
+const bestEl=document.getElementById('best');
+const msgEl=document.getElementById('msg');
+const banner=document.getElementById('banner');
+
+/* ===== タイマー ===== */
+function fmt(s){ const m=Math.floor(s/60), r=s%60; return String(m).padStart(2,'0')+':'+String(r).padStart(2,'0'); }
+function startTimer(){
+  stopTimer(); seconds=0; timerEl.textContent=fmt(0);
+  timerId=setInterval(()=>{ seconds++; timerEl.textContent=fmt(seconds); },1000);
+}
+function stopTimer(){ if(timerId){ clearInterval(timerId); timerId=null; } }
+
+/* ===== 盤面生成 ===== */
+function newGame(){
+  msgEl.textContent=''; msgEl.className='msg';
+  banner.classList.remove('show');
+  solved=false; selected=null;
+  const {puzzle:p,solution:s}=generatePuzzle(EMPTY_TARGET[level]);
+  puzzle=p.map(r=>r.slice());
+  solution=s;
+  given=p.map(r=>r.map(v=>v!==0));
+  bestEl.textContent = bestTimes[level]!=null ? fmt(bestTimes[level]) : '--:--';
+  render();
+  startTimer();
+}
+
+/* ===== 描画 ===== */
+function render(){
+  boardEl.innerHTML='';
+  for(let r=0;r<9;r++) for(let c=0;c<9;c++){
+    const cell=document.createElement('div');
+    cell.className='cell';
+    if(c===2||c===5) cell.classList.add('rt');
+    if(r===2||r===5) cell.classList.add('bt');
+    if(given[r][c]) cell.classList.add('given');
+    const v=puzzle[r][c];
+    cell.textContent = v!==0 ? v : '';
+    cell.dataset.r=r; cell.dataset.c=c;
+    boardEl.appendChild(cell);
+  }
+  applyHighlight();
+  markConflicts();
+}
+function cellAt(r,c){ return boardEl.children[r*9+c]; }
+
+function applyHighlight(){
+  for(const cell of boardEl.children){ cell.classList.remove('peer','same','sel'); }
+  if(!selected) return;
+  const {r,c}=selected;
+  const selVal=puzzle[r][c];
+  for(let i=0;i<9;i++) for(let j=0;j<9;j++){
+    const cell=cellAt(i,j);
+    const sameBox = Math.floor(i/3)===Math.floor(r/3) && Math.floor(j/3)===Math.floor(c/3);
+    if(i===r||j===c||sameBox) cell.classList.add('peer');
+    if(selVal!==0 && puzzle[i][j]===selVal) cell.classList.add('same');
+  }
+  cellAt(r,c).classList.add('sel');
+}
+
+function markConflicts(){
+  for(const cell of boardEl.children) cell.classList.remove('conflict');
+  for(let r=0;r<9;r++) for(let c=0;c<9;c++){
+    const v=puzzle[r][c];
+    if(v===0) continue;
+    let bad=false;
+    for(let k=0;k<9;k++){
+      if(k!==c && puzzle[r][k]===v){ bad=true; }
+      if(k!==r && puzzle[k][c]===v){ bad=true; }
+    }
+    const br=Math.floor(r/3)*3, bc=Math.floor(c/3)*3;
+    for(let i=0;i<3;i++) for(let j=0;j<3;j++){
+      const rr=br+i, cc=bc+j;
+      if((rr!==r||cc!==c) && puzzle[rr][cc]===v) bad=true;
+    }
+    if(bad) cellAt(r,c).classList.add('conflict');
+  }
+}
+
+/* ===== 入力 ===== */
+function selectCell(r,c){ selected={r,c}; applyHighlight(); }
+
+function placeNumber(n){
+  if(!selected||solved) return;
+  const {r,c}=selected;
+  if(given[r][c]) return;
+  puzzle[r][c]=n;
+  const cell=cellAt(r,c);
+  cell.textContent = n!==0 ? n : '';
+  cell.classList.remove('wrong');
+  applyHighlight();
+  markConflicts();
+  if(n!==0) checkWin();
+}
+
+function checkWin(){
+  for(let r=0;r<9;r++) for(let c=0;c<9;c++){
+    if(puzzle[r][c]!==solution[r][c]) return;
+  }
+  solved=true; stopTimer();
+  for(const cell of boardEl.children){ cell.classList.add('done'); }
+  const t=seconds;
+  let isBest=false;
+  if(bestTimes[level]==null || t<bestTimes[level]){ bestTimes[level]=t; isBest=true; }
+  bestEl.textContent=fmt(bestTimes[level]);
+  document.getElementById('finalTime').textContent=fmt(t);
+  document.getElementById('newbest').style.display = isBest ? 'block' : 'none';
+  setTimeout(()=>banner.classList.add('show'),500);
+}
+
+/* 答え合わせ */
+function checkAnswers(){
+  if(solved) return;
+  let wrong=0, filled=0;
+  for(let r=0;r<9;r++) for(let c=0;c<9;c++){
+    const cell=cellAt(r,c);
+    cell.classList.remove('wrong');
+    if(given[r][c]||puzzle[r][c]===0) continue;
+    filled++;
+    if(puzzle[r][c]!==solution[r][c]){ cell.classList.add('wrong'); wrong++; }
+  }
+  if(wrong===0 && filled>0){
+    const blanks=puzzle.flat().filter(v=>v===0).length;
+    if(blanks===0){ msgEl.textContent='正解です！'; msgEl.className='msg ok'; }
+    else { msgEl.textContent='ここまで間違いなし。この調子です'; msgEl.className='msg ok'; }
+  } else if(wrong>0){
+    msgEl.textContent=`間違いが ${wrong} マスあります（赤色）`; msgEl.className='msg err';
+  } else {
+    msgEl.textContent='まだ数字が入っていません'; msgEl.className='msg';
+  }
+}
+
+/* ヒント：選択中の空きマス（なければ任意の空きマス）に正解を入れる */
+function giveHint(){
+  if(solved) return;
+  let target=null;
+  if(selected && !given[selected.r][selected.c] && puzzle[selected.r][selected.c]===0){
+    target=selected;
+  } else {
+    const blanks=[];
+    for(let r=0;r<9;r++) for(let c=0;c<9;c++){ if(puzzle[r][c]===0) blanks.push({r,c}); }
+    if(blanks.length===0){ return; }
+    target=blanks[Math.floor(Math.random()*blanks.length)];
+  }
+  const {r,c}=target;
+  puzzle[r][c]=solution[r][c];
+  const cell=cellAt(r,c);
+  cell.textContent=solution[r][c];
+  cell.classList.remove('wrong');
+  selected={r,c};
+  applyHighlight(); markConflicts();
+  msgEl.textContent=''; msgEl.className='msg';
+  checkWin();
+}
+
+/* ===== イベント ===== */
+boardEl.addEventListener('click',e=>{
+  const cell=e.target.closest('.cell'); if(!cell) return;
+  selectCell(+cell.dataset.r,+cell.dataset.c);
+});
+document.getElementById('pad').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  placeNumber(+b.dataset.n);
+});
+document.getElementById('levels').addEventListener('click',e=>{
+  const b=e.target.closest('.level'); if(!b) return;
+  document.querySelectorAll('.level').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  level=b.dataset.level;
+  newGame();
+});
+document.getElementById('newBtn').addEventListener('click',newGame);
+document.getElementById('hintBtn').addEventListener('click',giveHint);
+document.getElementById('checkBtn').addEventListener('click',checkAnswers);
+document.getElementById('bannerNew').addEventListener('click',newGame);
+
+/* キーボード操作（PC） */
+document.addEventListener('keydown',e=>{
+  if(!selected) return;
+  let {r,c}=selected;
+  if(e.key==='ArrowUp'&&r>0){ selectCell(r-1,c); e.preventDefault(); }
+  else if(e.key==='ArrowDown'&&r<8){ selectCell(r+1,c); e.preventDefault(); }
+  else if(e.key==='ArrowLeft'&&c>0){ selectCell(r,c-1); e.preventDefault(); }
+  else if(e.key==='ArrowRight'&&c<8){ selectCell(r,c+1); e.preventDefault(); }
+  else if(e.key>='1'&&e.key<='9'){ placeNumber(+e.key); }
+  else if(e.key==='0'||e.key==='Backspace'||e.key==='Delete'){ placeNumber(0); }
+});
+
+newGame();
+</script>
+</body>
+</html>
